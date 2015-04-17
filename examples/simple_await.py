@@ -6,7 +6,7 @@ dsn = 'dbname=aiopg user=aiopg password=passwd host=127.0.0.1'
 
 async def test_select():
     pool = await aiopg.create_pool(dsn)
-    async with pool.get() as conn:
+    async with pool.get_connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute("SELECT 1")
             ret = await cur.fetchone()

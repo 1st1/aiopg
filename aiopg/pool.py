@@ -245,11 +245,11 @@ class Pool(asyncio.AbstractServer):
         conn = yield from self.acquire()
         return _ConnectionContextManager(self, conn)
 
-    def get(self):
-        return _ConnManager2(self)
+    def get_connection(self):
+        return _AsyncConnManager(self)
 
 
-class _ConnManager2:
+class _AsyncConnManager:
 
     def __init__(self, pool):
         self._pool = pool
@@ -261,7 +261,7 @@ class _ConnManager2:
         return conn
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._pool.release(conn)
+        self._pool.release(self._conn)
 
 
 class _ConnectionContextManager:

@@ -32,6 +32,34 @@ def _enable_hstore(conn):
     return tuple(rv0), tuple(rv1)
 
 
+class _CursorProxyMethod:
+    # All this complexity because we want to have a hybrid method
+    # "Connection.connect()", that you can "yield from" and use
+    # "async with" on.
+
+    def __init__(self, conn, args, kwargs):
+        self.conn = conn
+        self.args = args
+        self.kwargs = kwargs
+
+    def __iter__(self):
+        try:
+            return (yield from self.conn._cursor(*self.args, **self.kwargs))
+        finally:
+            self.conn = self.args = self.kwargs = None
+
+    async def __aenter__(self):
+        try:
+            self.cur = await self.conn._cursor(*self.args, **self.kwargs)
+        finally:
+            self.conn = self.args = self.kwargs = None
+
+        return self.cur
+
+    async def __aexit__(self, *exc):
+        self.cur = None
+
+
 @asyncio.coroutine
 def connect(dsn=None, *, timeout=TIMEOUT, loop=None,
             enable_json=True, enable_hstore=True, echo=False, **kwargs):
@@ -159,9 +187,12 @@ class Connection:
     def _isexecuting(self):
         return self._conn.isexecuting()
 
+    def cursor(self, *args, **kwargs):
+        return _CursorProxyMethod(self, args, kwargs)
+
     @asyncio.coroutine
-    def cursor(self, name=None, cursor_factory=None,
-               scrollable=None, withhold=False, timeout=None):
+    def _cursor(self, name=None, cursor_factory=None,
+                scrollable=None, withhold=False, timeout=None):
         """A coroutine that returns a new cursor object using the connection.
 
         *cursor_factory* argument can be used to create non-standard
@@ -175,15 +206,15 @@ class Connection:
         if timeout is None:
             timeout = self._timeout
 
-        impl = yield from self._cursor(name=name,
-                                       cursor_factory=cursor_factory,
-                                       scrollable=scrollable,
-                                       withhold=withhold)
+        impl = yield from self._cursor_impl(name=name,
+                                            cursor_factory=cursor_factory,
+                                            scrollable=scrollable,
+                                            withhold=withhold)
         return Cursor(self, impl, timeout, self._echo)
 
     @asyncio.coroutine
-    def _cursor(self, name=None, cursor_factory=None,
-                scrollable=None, withhold=False):
+    def _cursor_impl(self, name=None, cursor_factory=None,
+                     scrollable=None, withhold=False):
         if cursor_factory is None:
             impl = self._conn.cursor(name=name,
                                      scrollable=scrollable, withhold=withhold)
